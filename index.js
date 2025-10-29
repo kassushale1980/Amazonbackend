@@ -1,44 +1,54 @@
-require("dotenv").config(); // Load .env variables
 const express = require("express");
 const cors = require("cors");
-const stripe = require("stripe")(process.env.STRIPE_KEY);
-const functions = require("firebase-functions");
+const path = require("path");
+const dotenv = require("dotenv");
+const admin = require("firebase-admin");
+const stripeLib = require("stripe");
 
+// Load .env only in local
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: path.resolve(__dirname, ".env") });
+}
+
+// Environment variables
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID;
+const JWT_SECRET = process.env.JWT_SECRET || "default_jwt_secret";
+const PORT = process.env.PORT || 5000;
+
+// Validate
+if (!STRIPE_SECRET_KEY) throw new Error("STRIPE_SECRET_KEY not set!");
+if (!FIREBASE_PROJECT_ID) throw new Error("FIREBASE_PROJECT_ID not set!");
+
+// Firebase Admin
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.applicationDefault(),
+    projectId: FIREBASE_PROJECT_ID,
+  });
+}
+
+// Stripe
+const stripe = stripeLib(STRIPE_SECRET_KEY);
+
+// Express
 const app = express();
-
-// ✅ Middleware
-app.use(
-  cors({
-    origin: "http://localhost:5174", // your React frontend port
-    credentials: true,
-  })
-);
+app.use(cors());
 app.use(express.json());
 
-// ✅ Test route
-app.get("/", (req, res) => {
-  res.send("Stripe backend is running");
-});
+// Test route
+app.get("/", (req, res) => res.send("Amazon clone backend is running!"));
 
-// ✅ Payment route
-app.post("/payment/create", async (req, res) => {
+// Stripe payment route
+app.post("/create-payment-intent", async (req, res) => {
   try {
-    const total = req.query.total; // total in cents
-    console.log("💰 Payment Request Received for amount:", total);
-
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: total,
-      currency: "usd",
-    });
-
-    res.status(200).send({
-      clientSecret: paymentIntent.client_secret,
-    });
+    const { amount, currency = "usd" } = req.body;
+    const paymentIntent = await stripe.paymentIntents.create({ amount, currency });
+    res.status(200).json({ clientSecret: paymentIntent.client_secret });
   } catch (error) {
-    console.error("❌ Payment Error:", error);
-    res.status(500).send({ error: error.message });
+    console.error(error);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// ✅ Export as Firebase Cloud Function
-exports.api = functions.https.onRequest(app);
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
